@@ -67,14 +67,6 @@ test_that("Overridden serializers apply on filters and endpoints", {
   expect_equal(r$serve(make_req("GET", "/another"), res)$body, "CUSTOM3")
 
   res <- PlumberResponse$new()
-  expect_equal(r$serve(make_req("GET", "/short-json"), res)$body, jsonlite::toJSON("JSON"))
-  expect_equal_functions(res$serializer, serializer_json())
-
-  res <- PlumberResponse$new()
-  expect_equal(r$serve(make_req("GET", "/short-html"), res)$body, "HTML")
-  expect_equal_functions(res$serializer, serializer_html())
-
-  res <- PlumberResponse$new()
   body <- r$serve(make_req("GET", "/single-arg-ser"), res)$body
   expect_equal(body$val, "COA")
   expect_equal(body$arg, "hi there")
@@ -85,6 +77,19 @@ test_that("Overridden serializers apply on filters and endpoints", {
   expect_equal(body$args$first, "A")
   expect_equal(body$args$second, 8)
   expect_equal(body$args$third, 4.3)
+
+
+  # due to covr changing some code, the return answer is very strange
+  # the tests below should be skipped on covr
+  testthat::skip_on_covr()
+
+  res <- PlumberResponse$new()
+  expect_equal(r$serve(make_req("GET", "/short-json"), res)$body, jsonlite::toJSON("JSON"))
+  expect_equal_functions(res$serializer, serializer_json())
+
+  res <- PlumberResponse$new()
+  expect_equal(r$serve(make_req("GET", "/short-html"), res)$body, "HTML")
+  expect_equal_functions(res$serializer, serializer_html())
 })
 
 # test_that("Overridding the attached serializer in code works.", {
@@ -123,4 +128,25 @@ test_that("nullSerializer errors call error handler", {
   expect_equal(errors, 0)
   nullSerializer()(parse(stop("I crash")), list(), PlumberResponse$new("json"), err = errHandler)
   expect_equal(errors, 1)
+})
+
+test_that("Error handler is passed to serializer", {
+  res <- PlumberResponse$new()
+
+  addSerializer("failingSer", function() {
+    function(val, req, res, errorHandler){
+      errorHandler(req, res, simpleError("A serializer error"))
+    }
+  })
+
+  r <- plumber$new(test_path("files/serializer-error.R"))
+
+  r$setErrorHandler(function(req, res, err) {
+    msg <- paste("Handled:", conditionMessage(err))
+    stop(msg)
+  })
+
+  expect_error(r$serve(make_req("GET", "/fail"), res),
+               regexp = "Handled: A serializer error")
+
 })

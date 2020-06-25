@@ -22,15 +22,15 @@ You may sign up for a Digital Ocean account \href{https://m.do.co/c/add0b50f54c4
 This command is idempotent, so feel free to run it on a single server multiple times.
 }
 \details{
-Provisions a Ubuntu 16.04-x64 droplet with the following customizations:
+Provisions a Ubuntu 20.04-x64 droplet with the following customizations:
 \itemize{
 \item A recent version of R installed
 \item plumber installed globally in the system library
-\item An example plumber API deployed at \code{/var/plumber}
+\item An example plumber API deployed at \verb{/var/plumber}
 \item A systemd definition for the above plumber API which will ensure that the plumber
 API is started on machine boot and respawned if the R process ever crashes. On the
-server you can use commands like \code{systemctl restart plumber} to manage your API, or
-\code{journalctl -u plumber} to see the logs associated with your plumber process.
+server you can use commands like \verb{systemctl restart plumber} to manage your API, or
+\verb{journalctl -u plumber} to see the logs associated with your plumber process.
 \item The `nginx`` web server installed to route web traffic from port 80 (HTTP) to your plumber
 process.
 \item \code{ufw} installed as a firewall to restrict access on the server. By default it only

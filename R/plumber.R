@@ -4,57 +4,73 @@ NULL
 
 # used to identify annotation flags.
 verbs <- c("GET", "PUT", "POST", "DELETE", "HEAD", "OPTIONS", "PATCH")
-enumerateVerbs <- function(v){
-  if (identical(v, "use")){
+enumerateVerbs <- function(v) {
+  if (identical(v, "use")) {
     return(verbs)
   }
   toupper(v)
 }
 
+#' Plumber Router
+#' @details Routers are the core request handler in plumber. A router is responsible for
+#' taking an incoming request, submitting it through the appropriate filters and
+#' eventually to a corresponding endpoint, if one is found.
+#'
+#' See \url{http://www.rplumber.io/docs/programmatic/} for additional
+#' details on the methods available on this object.
 #' @rdname plumber
+#' @param file The file to parse as the plumber router definition.
+#' @param dir The directory containing the `plumber.R` file to parse as the
+#'   plumber router definition. Alternatively, if an `entrypoint.R` file is
+#'   found, it will take precedence and be responsible for returning a runnable
+#'   router.
 #' @export
-plumb <- function(file, dir="."){
+plumb <- function(file = NULL, dir = ".") {
 
-  dirMode <- NULL
+  if (!is.null(file) && !identical(dir, ".")) {
+    # both were explicitly set.
+    # assume it is a file in that dir and continue like normal
+    file <- file.path(
+      # removing trailing slash in dir
+      normalize_dir_path(dir),
+      file
+    )
+  }
 
-  if (!missing(file) && !missing(dir)){
-    # Both were explicitly set. Error
-    stop("You must set either the file or the directory parameter, not both")
-
-  } else if (missing(file)){
-    if (identical(dir, "")){
+  if (is.null(file)) {
+    if (identical(dir, "")) {
       # dir and file are both empty. Error
       stop("You must specify either a file or directory parameter")
     }
 
-    # Parse dir
-    dirMode <- TRUE
-    dir <- sub("/$", "", dir)
+    dir <- normalize_dir_path(dir)
 
-    # Find plumber.R in the directory case-insensitively
-    file <- list.files(dir, "^plumber\\.r$", ignore.case = TRUE, full.names = TRUE)
+    # if the entrypoint file exists...
+    entrypoint <- list.files(dir, "^entrypoint\\.r$", ignore.case = TRUE)
+    if (length(entrypoint) >= 1) {
+      if (length(entrypoint) > 1) {
+        entrypoint <- entrypoint[1]
+        warning("Found multiple files named 'entrypoint.R'. Using: '", entrypoint, "'")
+      }
 
-  } else {
-    # File was specified
-    dirMode <- FALSE
-  }
+      # set working directory to dir before sourcing
+      old <- setwd(dir)
+      on.exit(setwd(old), add = TRUE)
 
-  entrypoint <- list.files(dir, "^entrypoint\\.r$", ignore.case = TRUE)
-  if (dirMode && length(entrypoint) > 0){
-    # Dir was specified and we found an entrypoint.R
+      # Expect that entrypoint will provide us with the router
+      #   Do not 'poison' the global env. Using a local environment
+      #   sourceUTF8 returns the (visible) value object. No need to call source()$value()
+      pr <- sourceUTF8(entrypoint, environment())
 
-    old <- setwd(dir)
-    on.exit(setwd(old))
+      if (!inherits(pr, "plumber")){
+        stop("'", entrypoint, "' must return a runnable Plumber router.")
+      }
 
-    # Expect that entrypoint will provide us with the router
-    #   Do not 'poison' the global env. Using a local environment
-    #   sourceUTF8 returns the (visible) value object. No need to call source()$value()
-    pr <- sourceUTF8(entrypoint, environment())
-
-    if (!inherits(pr, "plumber")){
-      stop("entrypoint.R must return a runnable Plumber router.")
+      # return plumber object
+      return(pr)
     }
 
+<<<<<<< HEAD
     pr
   } else if (length(file) == 0){
     stop("No plumber.R file found in the specified directory: ", dir)
@@ -62,15 +78,33 @@ plumb <- function(file, dir="."){
     # Plumber file found
     plumber$new(file)
   } else {
+=======
+    # Find plumber.R in the directory case-insensitive
+    file <- list.files(dir, "^plumber\\.r$", ignore.case = TRUE, full.names = TRUE)
+    if (length(file) == 0) {
+      stop("No plumber.R file found in the specified directory: ", dir)
+    }
+    if (length(file) > 1) {
+      file <- file[1]
+      warning("Found multiple files named 'plumber.R' in directory: '", dir, "'.\nUsing: '", file, "'")
+    }
+    # continue as if a file has been provided...
+  }
+
+  if (!file.exists(file)) {
+>>>>>>> 038e0bc0b2fd7a2e4728ee35e6469bf6dc4e2e4b
     # Couldn't find the Plumber file nor an entrypoint
     stop("File does not exist: ", file)
   }
+
+  # Plumber file found
+  plumber$new(file)
 }
 
 
-#' @include query-string.R
-#' @include post-body.R
-#' @include cookie-parser.R
+#' @include parse-query.R
+#' @include parse-body.R
+#' @include parser-cookie.R
 #' @include shared-secret-filter.R
 defaultPlumberFilters <- list(
   queryString = queryStringFilter,
@@ -78,12 +112,18 @@ defaultPlumberFilters <- list(
   cookieParser = cookieFilter,
   sharedSecret = sharedSecretFilter)
 
+#' hookable
 hookable <- R6Class(
   "hookable",
   public=list(
+    #' @description Register a hook on a router
+    #' @param stage a character string.
+    #' @param handler a hook function.
     registerHook = function(stage, handler){
       private$hooks[[stage]] <- c(private$hooks[[stage]], handler)
     },
+    #' @description Register hooks on a router
+    #' @param handlers a named list of hook functions.
     registerHooks = function(handlers){
       for (i in 1:length(handlers)){
         stage <- names(handlers)[i]
@@ -150,30 +190,21 @@ hookable <- R6Class(
 )
 
 
-#' Plumber Router
-#'
-#' Routers are the core request handler in plumber. A router is responsible for
-#' taking an incoming request, submitting it through the appropriate filters and
-#' eventually to a corresponding endpoint, if one is found.
-#'
-#' See \url{http://www.rplumber.io/docs/programmatic/} for additional
-#' details on the methods available on this object.
-#' @param file The file to parse as the plumber router definition
-#' @param dir The directory containing the `plumber.R` file to parse as the
-#'   plumber router definition. Alternatively, if an `entrypoint.R` file is
-#'   found, it will take precedence and be responsible for returning a runnable
-#'   Plumber router.
 #' @include globals.R
 #' @include serializer-json.R
-#' @include parse-block.R
-#' @include parse-globals.R
+#' @include plumb-block.R
+#' @include plumb-globals.R
 #' @export
-#' @importFrom httpuv runServer
 #' @import crayon
 plumber <- R6Class(
   "plumber",
   inherit = hookable,
   public = list(
+    #' @description Create a new `plumber` router
+    #' @param filters a list of plumber filters
+    #' @param file path to file to plumb
+    #' @param envir an environment to be used as the enclosure for the routers execution
+    #' @return A new `plumber` router
     initialize = function(file=NULL, filters=defaultPlumberFilters, envir){
 
       if (!is.null(file)){
@@ -201,6 +232,7 @@ plumber <- R6Class(
       private$serializer <- serializer_json()
       private$errorHandler <- defaultErrorHandler()
       private$notFoundHandler <- default404Handler
+      private$maxSize <- getOption('plumber.maxRequestSize', 0) #0 Unlimited
 
       # Add in the initial filters
       for (fn in names(filters)){
@@ -221,10 +253,44 @@ plumber <- R6Class(
                         private$addFilterInternal, self$mount)
         }
 
-        private$globalSettings <- parseGlobals(private$lines)
+        private$globalSettings <- plumbGlobals(private$lines)
       }
 
     },
+    #' @description Start a server using `plumber` object.
+    #' @param host a string that is a valid IPv4 or IPv6 address that is owned by
+    #' this server, which the application will listen on. "0.0.0.0" represents
+    #' all IPv4 addresses and "::/0" represents all IPv6 addresses.
+    #' @param port a number or integer that indicates the server port that should
+    #' be listened on. Note that on most Unix-like systems including Linux and
+    #' Mac OS X, port numbers smaller than 1025 require root privileges.
+    #' @param swagger a function that enhances the existing OpenAPI Specification.
+    #' @param debug `TRUE` provides more insight into your API errors.
+    #' @param swaggerCallback a callback function for taking action on the url for swagger page.
+    #' @details
+    #' `port` does not need to be explicitly assigned.
+    #'
+    #' `swagger` should be either a logial or a function . When `TRUE` or a
+    #' function, multiple handles will be added to `plumber` object. OpenAPI json
+    #' file will be served on paths `/openapi.json` and `/swagger.json`. Swagger UI
+    #' will be served on paths `/__swagger__/index.html` and `/__swagger__/`. When
+    #' using a function, it will receive the plumber router as the first parameter
+    #' and current OpenAPI Specification as the second. This function should return a
+    #' list containing OpenAPI Specification.
+    #' See \url{http://spec.openapis.org/oas/v3.0.3}
+    #'
+    #' `swaggerCallback` When set, it will be called with a character string corresponding
+    #' to the swagger UI url. It allows RStudio to open swagger UI when plumber router
+    #' run method is executed using default `plumber.swagger.url` option.
+    #' @examples
+    #' \dontrun{
+    #' pr <- plumber$new
+    #' swagger <- function(pr_, spec) {
+    #'   spec$servers[[1]]$description <- "MyCustomAPISpec"
+    #'   spec
+    #' }
+    #' pr$run(swagger = swagger)
+    #' }
     run = function(
       host = '127.0.0.1',
       port = getOption('plumber.port'),
@@ -252,9 +318,9 @@ plumber <- R6Class(
         if (!requireNamespace("swagger")) {
           stop("swagger must be installed for the Swagger UI to be displayed")
         }
-        spec <- self$swaggerFile()
+        spec <- self$apiSpec()
 
-        # Create a function that's hardcoded to return the swaggerfile -- regardless of env.
+        # Create a function that's hardcoded to return the apiSpec -- regardless of env.
         swagger_fun <- function(req, res, ..., scheme = "deprecated", host = "deprecated", path = "deprecated") {
           if (!missing(scheme) || !missing(host) || !missing(path)) {
             warning("`scheme`, `host`, or `path` are not supported to produce swagger.json")
@@ -274,7 +340,7 @@ plumber <- R6Class(
           )
 
           if (is.function(swagger)) {
-            # allow users to update the swagger file themselves
+            # allow users to update the OpenAPI Specification themselves
             ret <- swagger(self, spec, ...)
             # Since users could have added more NA or NULL values...
             ret <- removeNaOrNulls(ret)
@@ -284,7 +350,7 @@ plumber <- R6Class(
           }
           ret
         }
-        # https://swagger.io/specification/#document-structure
+        # http://spec.openapis.org/oas/v3.0.3#document-structure
         # "It is RECOMMENDED that the root OpenAPI document be named: openapi.json or openapi.yaml."
         self$handle("GET", "/openapi.json", swagger_fun, serializer = serializer_unboxed_json())
         # keeping for legacy purposes
@@ -319,17 +385,111 @@ plumber <- R6Class(
 
       httpuv::runServer(host, port, self)
     },
+    #' @description Mount a plumber router
+    #' @param path a character string. Where to mount router.
+    #' @param router a plumber router. Router to be mounted.
+    #' @details Plumber routers can be “nested” by mounting one into another
+    #' using the `mount()` method. This allows you to compartmentalize your API
+    #' by paths which is a great technique for decomposing large APIs into smaller files.
+    #' @examples
+    #' \dontrun{
+    #' root <- plumber$new()
+    #'
+    #' users <- plumber$new("users.R")
+    #' root$mount("/users", users)
+    #'
+    #' products <- plumber$new("products.R")
+    #' root$mount("/products", products)
+    #' }
     mount = function(path, router){
-      path <- sub("([^/])$", "\\1/", path)
+      # Ensure that the path has both a leading and trailing slash.
+      if (!startsWith(path, "/")) {
+        path <- paste0("/", path)
+      }
+      if (!endsWith(path, "/")) {
+        path <- paste0(path, "/")
+      }
 
       private$mnts[[path]] <- router
     },
+    #' @description Register a hook
+    #' @param stage a character string. Point in the lifecycle of a request.
+    #' @param handler a hook function.
+    #' @details Plumber routers support the notion of "hooks" that can be registered
+    #' to execute some code at a particular point in the lifecycle of a request.
+    #' Plumber routers currently support four hooks:
+    #' \enumerate{
+    #'  \item `preroute(data, req, res)`
+    #'  \item `postroute(data, req, res, value)`
+    #'  \item `preserialize(data, req, res, value)`
+    #'  \item `postserialize(data, req, res, value)`
+    #' }
+    #' In all of the above you have access to a disposable environment in the `data`
+    #' parameter that is created as a temporary data store for each request. Hooks
+    #' can store temporary data in these hooks that can be reused by other hooks
+    #' processing this same request.
+    #'
+    #' One feature when defining hooks in Plumber routers is the ability to modify
+    #' the returned value. The convention for such hooks is: any function that accepts
+    #' a parameter named `value` is expected to return the new value. This could
+    #' be an unmodified version of the value that was passed in, or it could be a
+    #' mutated value. But in either case, if your hook accepts a parameter
+    #' named `value`, whatever your hook returns will be used as the new value
+    #' for the response.
+    #'
+    #' You can add hooks using the `registerHook` method, or you can add multiple
+    #' hooks at once using the `registerHooks` method which takes a name list in
+    #' which the names are the names of the hooks, and the values are the
+    #' handlers themselves.
+    #' @examples
+    #' \dontrun{
+    #' pr <- plumber$new()
+    #' pr$registerHook("preroute", function(req){
+    #'   cat("Routing a request for", req$PATH_INFO, "...\n")
+    #' })
+    #' pr$registerHooks(list(
+    #'   preserialize=function(req, value){
+    #'     print("About to serialize this value:")
+    #'     print(value)
+    #'
+    #'     # Must return the value since we took one in. Here we're not choosing
+    #'     # to mutate it, but we could.
+    #'     value
+    #'   },
+    #'   postserialize=function(res){
+    #'     print("We serialized the value as:")
+    #'     print(res$body)
+    #'   }
+    #' ))
+    #'
+    #' pr$handle("GET", "/", function(){ 123 })
+    #' }
     registerHook = function(stage=c("preroute", "postroute",
                                     "preserialize", "postserialize", "exit"), handler){
       stage <- match.arg(stage)
       super$registerHook(stage, handler)
     },
-
+    #' @description Define endpoints
+    #' @param methods a character string. http method.
+    #' @param path a character string. Api endpoints
+    #' @param handler a handler function.
+    #' @param preempt a preempt function.
+    #' @param serializer a serializer function.
+    #' @param endpoint a `PlumberEndpoint` object.
+    #' @param ... additional arguments for `PlumberEndpoint` creation
+    #' @details The “handler” functions that you define in these handle calls
+    #' are identical to the code you would have defined in your plumber.R file
+    #' if you were using annotations to define your API. The handle() method
+    #' takes additional arguments that allow you to control nuanced behavior
+    #' of the endpoint like which filter it might preempt or which serializer
+    #' it should use.
+    #' @examples
+    #' \dontrun{
+    #' pr <- plumber$new()
+    #' pr$handle("GET", "/", function(){
+    #'   "<html><h1>Programmatic Plumber!</h1></html>"
+    #' }, serializer=plumber::serializer_html())
+    #' }
     handle = function(methods, path, handler, preempt, serializer, endpoint, ...){
       epdef <- !missing(methods) || !missing(path) || !missing(handler) || !missing(serializer)
       if (!missing(endpoint) && epdef){
@@ -345,6 +505,12 @@ plumber <- R6Class(
       }
       private$addEndpointInternal(endpoint, preempt)
     },
+    #' @description Print reprensation of plumber router.
+    #' @param prefix a character string. Prefix to append to representation.
+    #' @param topLevel a logical value. When method executed on top level
+    #' router, set to `TRUE`.
+    #' @param ... additional arguments for recursive calls
+    #' @return A terminal friendly represention of a plumber router.
     print = function(prefix="", topLevel=TRUE, ...){
       endCount <- as.character(sum(unlist(lapply(self$endpoints, length))))
 
@@ -420,7 +586,9 @@ plumber <- R6Class(
 
       invisible(self)
     },
-
+    #' @description Serve a request
+    #' @param req request object
+    #' @param res response object
     serve = function(req, res) {
       hookEnv <- new.env()
 
@@ -448,7 +616,7 @@ plumber <- R6Class(
           private$runHooks("preserialize", list(data = hookEnv, req = req, res = res, value = value))
         }
         serializeStep <- function(value, ...) {
-          ser(value, req, res, errorHandler)
+          ser(value, req, res, private$errorHandler)
         }
         postserializeStep <- function(value, ...) {
           private$runHooks("postserialize", list(data = hookEnv, req = req, res = res, value = value))
@@ -516,7 +684,9 @@ plumber <- R6Class(
       #   conclude(val)
       # }
     },
-
+    #' @description Route a request
+    #' @param req request object
+    #' @param res response object
     route = function(req, res) {
       getHandle <- function(filt) {
         handlers <- private$ends[[filt]]
@@ -645,8 +815,9 @@ plumber <- R6Class(
         })
       })
     },
-
-    # httpuv interface
+    #' @description httpuv interface call function
+    #' @param req request object
+    #' @details required for httpuv interface
     call = function(req) {
       # Set the arguments to an empty list
       req$args <- list()
@@ -657,49 +828,109 @@ plumber <- R6Class(
       # maybe return a promise object
       self$serve(req, res)
     },
+    #' @description httpuv interface onHeaders function
+    #' @param req request object
+    #' @details required for httpuv interface
     onHeaders = function(req) {
-      NULL
+      maxSize <- private$maxSize
+      if (isTRUE(maxSize <= 0))
+        return(NULL)
+
+      reqSize <- 0
+      # https://github.com/rstudio/shiny/blob/a022a2b4/R/middleware.R#L298-L301
+      if (length(req$CONTENT_LENGTH) > 0)
+        reqSize <- as.numeric(req$CONTENT_LENGTH)
+      else if (length(req$HTTP_TRANSFER_ENCODING) > 0)
+        reqSize <- Inf
+
+      if (isTRUE(reqSize > maxSize)) {
+        return(list(status = 413L,
+                    headers = list('Content-Type' = 'text/plain'),
+                    body = 'Maximum upload size exceeded'))
+      }
+      else {
+        return(NULL)
+      }
     },
+    #' @description httpuv interface onWSOpen function
+    #' @param ws WebSocket object
+    #' @details required for httpuv interface
     onWSOpen = function(ws){
       warning("WebSockets not supported.")
     },
-
+    #' @details Sets the default serializer of the router.
+    #' @param serializer a serializer function
     setSerializer = function(serializer){
       private$serializer <- serializer
-    }, # Set a default serializer
-
+    },
+    #' @details Sets the handler that gets called if an
+    #' incoming request can’t be served by any filter, endpoint, or sub-router.
+    #' @param fun a handler function.
+    #' @examples
+    #' \dontrun{
+    #' pr <- plumber$new()
+    #' pr$set404Handler(function(req, res) {cat(req$PATH_INFO)})
+    #' }
     set404Handler = function(fun){
       private$notFoundHandler <- fun
     },
+    #' @details Sets the error handler which gets invoked if any filter or
+    #' endpoint generates an error.
+    #' @param fun a handler function.
+    #' @examples
+    #' \dontrun{
+    #' pr <- plumber$new()
+    #' pr$setErrorHandler(function(req, res) {cat(res$body)})
+    #' }
     setErrorHandler = function(fun){
       private$errorHandler <- fun
     },
-
+    #' @description Add a filter to plumber router
+    #' @param name a character string. Name of filter
+    #' @param expr an expr that resolve to a filter function or a filter function
+    #' @param serializer a serializer function
     filter = function(name, expr, serializer){
       filter <- PlumberFilter$new(name, expr, private$envir, serializer)
       private$addFilterInternal(filter)
     },
-    swaggerFile = function() { #FIXME: test
+    #' @description Retrieve openAPI file
+    apiSpec = function() { #FIXME: test
 
-      swaggerPaths <- private$swaggerFileWalkMountsInternal(self)
+      routerSpec <- private$routerSpecificationInternal(self)
 
       # Extend the previously parsed settings with the endpoints
-      def <- modifyList(private$globalSettings, list(paths = swaggerPaths))
+      def <- utils::modifyList(private$globalSettings, list(paths = routerSpec))
 
       # Lay those over the default globals so we ensure that the required fields
       # (like API version) are satisfied.
-      ret <- modifyList(defaultGlobals, def)
+      ret <- utils::modifyList(defaultGlobals, def)
 
       # remove NA or NULL values, which swagger doesn't like
       ret <- removeNaOrNulls(ret)
 
       ret
     },
+    #' @description Retrieve openAPI file
     openAPIFile = function() {
-      self$swaggerFile()
+      warning("`$openAPIFile()` has been deprecated in v1.0.0 and will be removed in a coming release. Please use `$apiSpec()`.")
+      self$apiSpec()
+    },
+    #' @description Retrieve openAPI file
+    swaggerFile = function() {
+      warning("`$swaggerFile()` has been deprecated in v1.0.0 and will be removed in a coming release. Please use `$apiSpec()`.")
+      self$apiSpec()
     },
 
     ### Legacy/Deprecated
+    #' @details addEndpoint has been deprecated in v0.4.0 and will be removed in a coming release. Please use `handle()` instead.
+    #' @param verbs verbs
+    #' @param path path
+    #' @param expr expr
+    #' @param serializer serializer
+    #' @param processors processors
+    #' @param preempt preempt
+    #' @param params params
+    #' @param comments comments
     addEndpoint = function(verbs, path, expr, serializer, processors, preempt=NULL, params=NULL, comments){
       warning("addEndpoint has been deprecated in v0.4.0 and will be removed in a coming release. Please use `handle()` instead.")
       if (!missing(processors) || !missing(params) || !missing(comments)){
@@ -708,6 +939,10 @@ plumber <- R6Class(
 
       self$handle(verbs, path, expr, preempt, serializer)
     },
+    #' @details addAssets has been deprecated in v0.4.0 and will be removed in a coming release. Please use `mount` and `PlumberStatic$new()` instead.
+    #' @param dir dir
+    #' @param path path
+    #' @param options options
     addAssets = function(dir, path="/public", options=list()){
       warning("addAssets has been deprecated in v0.4.0 and will be removed in a coming release. Please use `mount` and `PlumberStatic$new()` instead.")
       if (substr(path, 1,1) != "/"){
@@ -717,6 +952,11 @@ plumber <- R6Class(
       stat <- PlumberStatic$new(dir, options)
       self$mount(path, stat)
     },
+    #' @details addFilter has been deprecated in v0.4.0 and will be removed in a coming release. Please use `filter` instead.
+    #' @param name name
+    #' @param expr expr
+    #' @param serializer serializer
+    #' @param processors processors
     addFilter = function(name, expr, serializer, processors){
       warning("addFilter has been deprecated in v0.4.0 and will be removed in a coming release. Please use `filter` instead.")
       if (!missing(processors)){
@@ -726,23 +966,30 @@ plumber <- R6Class(
       filter <- PlumberFilter$new(name, expr, private$envir, serializer)
       private$addFilterInternal(filter)
     },
+    #' @details addGlobalProcessor has been deprecated in v0.4.0 and will be removed in a coming release. Please use `registerHook`(s) instead.
+    #' @param proc proc
     addGlobalProcessor = function(proc){
       warning("addGlobalProcessor has been deprecated in v0.4.0 and will be removed in a coming release. Please use `registerHook`(s) instead.")
       self$registerHooks(proc)
     }
   ), active = list(
-    endpoints = function(){ # read-only
+    #' @field endpoints plumber router endpoints read-only
+    endpoints = function(){
       private$ends
     },
-    filters = function(){ # read-only
+    #' @field filters plumber router filters read-only
+    filters = function(){
       private$filts
     },
-    mounts = function(){ # read-only
+    #' @field mounts plumber router mounts read-only
+    mounts = function(){
       private$mnts
     },
-    environment = function() { #read-only
+    #' @field environment plumber router environment read-only
+    environment = function() {
       private$envir
     },
+    #' @field routes plumber router routes read-only
     routes = function(){
       paths <- list()
 
@@ -800,10 +1047,11 @@ plumber <- R6Class(
     envir = NULL, # The environment in which all API execution will be conducted
     lines = NULL, # The lines constituting the API
     parsed = NULL, # The parsed representation of the API
-    globalSettings = list(info=list()), # Global settings for this API. Primarily used for Swagger docs.
+    globalSettings = list(info=list()), # Global settings for this API. Primarily used for OpenAPI Specification.
 
     errorHandler = NULL,
     notFoundHandler = NULL,
+    maxSize = NULL, # Max request size in bytes
 
     addFilterInternal = function(filter){
       # Create a new filter and add it to the router
@@ -832,7 +1080,7 @@ plumber <- R6Class(
       private$ends[[preempt]] <- c(private$ends[[preempt]], ep)
     },
 
-    swaggerFileWalkMountsInternal = function(router, parentPath = "") {
+    routerSpecificationInternal = function(router, parentPath = "") {
       remove_trailing_slash <- function(x) {
         sub("[/]$", "", x)
       }
@@ -850,26 +1098,26 @@ plumber <- R6Class(
 
       for (endpoint in router$endpoints) {
         for (endpointEntry in endpoint) {
-          swaggerEndpoint <- prepareSwaggerEndpoint(
+          endpointSpec <- endpointSpecification(
             endpointEntry,
             join_paths(parentPath, endpointEntry$path)
           )
-          endpointList <- modifyList(endpointList, swaggerEndpoint)
+          endpointList <- utils::modifyList(endpointList, endpointSpec)
         }
       }
 
       # recursively gather mounted enpoint entries
       if (length(router$mounts) > 0) {
         for (mountPath in names(router$mounts)) {
-          mountEndpoints <- private$swaggerFileWalkMountsInternal(
+          mountEndpoints <- private$routerSpecificationInternal(
             router$mounts[[mountPath]],
             join_paths(parentPath, mountPath)
           )
-          endpointList <- modifyList(endpointList, mountEndpoints)
+          endpointList <- utils::modifyList(endpointList, mountEndpoints)
         }
       }
 
-      # returning a single list of swagger entries
+      # returning a single list of OpenAPI Paths Objects
       endpointList
     }
   )
